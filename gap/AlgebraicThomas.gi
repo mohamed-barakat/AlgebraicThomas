@@ -68,7 +68,7 @@ InstallMethod( Closure,
         [ IsScheme and IsAlgebraicThomasDecompositionOfConstructibleSetRep ],
         
   function( X )
-    local R, I;
+    local R, I, V;
     
     R := HomalgRing( X );
     
@@ -78,7 +78,13 @@ InstallMethod( Closure,
     
     SetNrColumns( I, 1 );
     
-    return R / LeftSubmodule( I );
+    V := Spec( R / LeftSubmodule( I ) );
+    
+    if HasIsAffineSubscheme( X ) and IsAffineSubscheme( X ) then
+        SetQuasiAffineSet( V, X );
+    fi;
+    
+    return V;
     
 end );
 
@@ -92,13 +98,13 @@ InstallMethod( ADefiningIdealOfComplement,
     
     CX := Complement( X );
     
-    I := DefiningIdeal( Closure( X ) );
+    I := DefiningIdeal( HomalgRing( Closure( X ) ) );
     
     V := QuasiAffineSet( I );
     
     IpJ := Intersect( CX, V );
     
-    IpJ := DefiningIdeal( Closure( IpJ ) );
+    IpJ := DefiningIdeal( HomalgRing( Closure( IpJ ) ) );
     
     J := MatrixOfSubobjectGenerators( IpJ );
     
@@ -122,7 +128,7 @@ InstallMethod( QuasiAffineDecomposition,
     
     while not IsEmpty( X ) do
         
-        Y := QuasiAffineSet( DefiningIdeal( Closure( X ) ), ADefiningIdealOfComplement( X ) );
+        Y := QuasiAffineSet( Closure( X ), ADefiningIdealOfComplement( X ) );
         
         SetClosure( Y, Closure( X ) );
         
@@ -177,21 +183,34 @@ InstallMethod( CountingPolynomial,
         [ IsScheme and IsAlgebraicThomasDecompositionOfConstructibleSetRep ],
         
   function( X )
-    local u, coeffs;
+    local u, coeffs, p;
     
     u := VariableForCountingPolynomial( );
     
     if IsEmpty( X ) then
         return 0 * u;
-    elif HasIsAffineSubscheme( X ) and IsAffineSubscheme( X ) then
-        return u^Dimension( X );
     fi;
     
     coeffs := homalgSendBlocking( [ "(p->map[3](coeff,p,u,[$0..degree(p)]))(AlgebraicThomas[countingPolynomials](", X!.Thomas_system, ",sym='", String( u ), "')[2])" ], "need_output", HOMALG_IO.Pictograms.CountingPolynomial );
     
     coeffs := StringToIntList( coeffs );
     
-    return Sum( [ 1 .. Length( coeffs ) ], i -> coeffs[i] * u^(i - 1) );
+    p := Sum( [ 1 .. Length( coeffs ) ], i -> coeffs[i] * u^(i - 1) );
+    
+    SetIsAffineSpace( X, p = u^DimensionOfAmbientSpace( X ) );
+    
+    return p;
+    
+end );
+
+##
+InstallMethod( CountingPolynomial,
+        "for an affine scheme",
+        [ IsScheme and IsAffineSchemeRep ],
+        
+  function( X )
+    
+    return CountingPolynomial( QuasiAffineSet( X ) );
     
 end );
 
@@ -205,7 +224,7 @@ InstallMethod( IsAffineSubscheme,
     
     R := HomalgRing( X );
     
-    Xcls := QuasiAffineSet( DefiningIdeal( Closure( X ) ), LeftSubmodule( R ) );
+    Xcls := QuasiAffineSet( Closure( X ) );
     
     return CountingPolynomial( X ) = CountingPolynomial( Xcls );
     
@@ -279,7 +298,7 @@ InstallMethod( AlgebraicThomasData,
     
     if not IsFieldForHomalg( r ) then
         Error( "CoefficientsRing is not a field\n" );
-    elif not IsFreePolynomialRing( R ) then
+    elif not ( HasIsFreePolynomialRing( R ) and IsFreePolynomialRing( R ) ) then
         Error( "ring is not a polynomial ring\n" );
     fi;
     
@@ -321,7 +340,7 @@ InstallGlobalFunction( _ConstructibleSet,
     ObjectifyWithAttributes(
             X, TheTypeAlgebraicThomasDecompositionOfConstructibleSet,
             Dimension, dim,
-            IsConstructibleSet, true,
+            IsConstructibleSubsetOfAffineSpace, true,
             IsReduced, true,
             BaseRing, CoefficientsRing( R )
             );
@@ -346,6 +365,10 @@ InstallMethod( QuasiAffineSet,
     fi;
     
     R := HomalgRing( I );
+    
+    if not IsIdenticalObj( R, HomalgRing( J ) ) then
+        Error( "the underlying rings are not identical\n" );
+    fi;
     
     table := AlgebraicThomasData( R );
     
@@ -384,12 +407,80 @@ end );
 
 ##
 InstallMethod( QuasiAffineSet,
-        "for two homalg ideals",
+        "for a homalg ideal",
         [ IsFinitelyPresentedSubmoduleRep and ConstructedAsAnIdeal ],
         
   function( I )
     
     return QuasiAffineSet( I, I^0 );
+    
+end );
+
+##
+InstallMethod( QuasiAffineSet,
+        "for an affine scheme and a homalg ideal",
+        [ IsAffineSchemeRep and IsAffine,
+          IsFinitelyPresentedSubmoduleRep and ConstructedAsAnIdeal ],
+        
+  function( X, J )
+    local R, I;
+    
+    R := HomalgRing( X );
+    
+    if HasIsFreePolynomialRing( R ) and IsFreePolynomialRing( R ) then
+        I := ZeroLeftSubmodule( R );
+    elif IsHomalgResidueClassRingRep( R ) then
+        I := DefiningIdeal( R );
+    else
+        TryNextMethod( );
+    fi;
+    
+    return QuasiAffineSet( I, J );
+    
+end );
+
+##
+InstallMethod( QuasiAffineSet,
+        "for an affine scheme",
+        [ IsAffineSchemeRep and IsAffine ],
+        
+  function( X )
+    local R, V;
+    
+    R := HomalgRing( X );
+    
+    if IsHomalgResidueClassRingRep( R ) then
+        R := AmbientRing( R );
+    fi;
+    
+    V := QuasiAffineSet( X, LeftSubmodule( R ) );
+    
+    SetClosure( V, X );
+    
+    return V;
+    
+end );
+
+##
+InstallMethod( QuasiAffineSet,
+        "for two affine schemes",
+        [ IsAffineSchemeRep and IsAffine,
+          IsAffineSchemeRep and IsAffine ],
+        
+  function( X, Y )
+    local R, J;
+    
+    R := HomalgRing( Y );
+    
+    if HasIsFreePolynomialRing( R ) and IsFreePolynomialRing( R ) then
+        J := ZeroLeftSubmodule( R );
+    elif IsHomalgResidueClassRingRep( R ) then
+        J := DefiningIdeal( R );
+    else
+        TryNextMethod( );
+    fi;
+    
+    return QuasiAffineSet( X, J );
     
 end );
 
@@ -422,6 +513,30 @@ InstallMethod( Intersect2,
 end );
 
 ##
+InstallMethod( Intersect2,
+        "for a constructible set and an affine scheme",
+        [ IsScheme and IsAlgebraicThomasDecompositionOfConstructibleSetRep,
+          IsScheme and IsAffineSchemeRep ],
+        
+  function( X, Y )
+    
+    return Intersect2( X, QuasiAffineSet( Y ) );
+  
+end );
+
+##
+InstallMethod( Intersect2,
+        "for an affine scheme and a constructible set",
+        [ IsScheme and IsAffineSchemeRep,
+          IsScheme and IsAlgebraicThomasDecompositionOfConstructibleSetRep ],
+        
+  function( X, Y )
+    
+    return Intersect2( QuasiAffineSet( X ), Y );
+  
+end );
+
+##
 InstallMethod( Union2,
         "for two constructible sets",
         [ IsScheme and IsAlgebraicThomasDecompositionOfConstructibleSetRep,
@@ -441,6 +556,31 @@ InstallMethod( Union2,
     return _ConstructibleSet( Z, R );
     
 end );
+
+##
+InstallMethod( Union2,
+        "for a constructible set and an affine scheme",
+        [ IsScheme and IsAlgebraicThomasDecompositionOfConstructibleSetRep,
+          IsScheme and IsAffineSchemeRep ],
+        
+  function( X, Y )
+    
+    return Union2( X, QuasiAffineSet( Y ) );
+  
+end );
+
+##
+InstallMethod( Union2,
+        "for an affine scheme and a constructible set",
+        [ IsScheme and IsAffineSchemeRep,
+          IsScheme and IsAlgebraicThomasDecompositionOfConstructibleSetRep ],
+        
+  function( X, Y )
+    
+    return Union2( QuasiAffineSet( X ), Y );
+  
+end );
+
 
 ##
 InstallMethod( Difference,
@@ -464,22 +604,73 @@ InstallMethod( Difference,
 end );
 
 ##
-InstallMethod( Complement,
+InstallMethod( Difference,
+        "for a constructible set and an affine scheme",
+        [ IsScheme and IsAlgebraicThomasDecompositionOfConstructibleSetRep,
+          IsScheme and IsAffineSchemeRep ],
+        
+  function( X, Y )
+    
+    return Difference( X, QuasiAffineSet( Y ) );
+  
+end );
+
+##
+InstallMethod( Difference,
+        "for an affine scheme and a constructible set",
+        [ IsScheme and IsAffineSchemeRep,
+          IsScheme and IsAlgebraicThomasDecompositionOfConstructibleSetRep ],
+        
+  function( X, Y )
+    
+    return Difference( QuasiAffineSet( X ), Y );
+  
+end );
+
+##
+InstallMethod( Difference,
+        "for two affine schemes",
+        [ IsScheme and IsAffineSchemeRep,
+          IsScheme and IsAffineSchemeRep ],
+        
+  function( X, Y )
+    
+    return QuasiAffineSet( X, Y );
+  
+end );
+
+##
+InstallMethod( ComplementAttr,
         "for a constructible set",
         [ IsScheme and IsAlgebraicThomasDecompositionOfConstructibleSetRep ],
         
   function( X )
-    local Z;
+    local Z, C;
     
     Z := homalgSendBlocking( [ "AlgebraicThomas[Complement](", X!.Thomas_system, ")" ], HOMALG_IO.Pictograms.ConstructibleSet );
     
-    return _ConstructibleSet( Z, HomalgRing( X ) );
+    C := _ConstructibleSet( Z, HomalgRing( X ) );
+    
+    SetComplementAttr( C, X );
+    
+    return C;
+    
+end );
+
+##
+InstallMethod( ComplementAttr,
+        "for an affine scheme",
+        [ IsScheme and IsAffineSchemeRep ],
+        
+  function( X )
+    
+    return Complement( QuasiAffineSet( X ) );
     
 end );
 
 ##
 InstallMethod( Project,
-        "for a constructible set and list of indeterminates",
+        "for a constructible set over a filtered ring",
         [ IsScheme and IsAlgebraicThomasDecompositionOfConstructibleSetRep ],
         
   function( X )
@@ -502,6 +693,17 @@ InstallMethod( Project,
     Y := homalgSendBlocking( [ "map(a->a[1],", Xc, ")" ], HOMALG_IO.Pictograms.ConstructibleSet );
     
     return _ConstructibleSet( Y, R );
+    
+end );
+
+##
+InstallMethod( Project,
+        "for an affine scheme over a filtered ring",
+        [ IsScheme and IsAffineSchemeRep ],
+        
+  function( X )
+    
+    return Project( QuasiAffineSet( X ) );
     
 end );
 
